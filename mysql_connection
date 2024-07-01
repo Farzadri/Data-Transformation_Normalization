@@ -1,0 +1,140 @@
+import pandas as pd
+import mysql.connector
+from sqlalchemy import create_engine
+
+# Connect to MySQL database
+mydb = mysql.connector.connect(
+    host="127.0.0.1",
+    port=3306,
+    user="root",
+    password="farzad123"
+)
+mycursor = mydb.cursor()
+
+# Create a new database if it does not exist
+mycursor.execute("CREATE DATABASE IF NOT EXISTS book")
+
+# Select the new database
+mycursor.execute("USE book")
+
+# Create a connection to the database using SQLAlchemy
+engine = create_engine('mysql+mysqlconnector://root:farzad123@127.0.0.1/book')
+
+# Path of the CSV file
+file_path = 'C:\\Users\\farar\\OneDrive\\Desktop\\Project\\Main dataset\\books_1.Best_Books_Ever.csv'
+books_df = pd.read_csv(file_path)
+
+# Select the desired columns
+books_details_df = books_df[[
+    'book_index_id', 'book_id', 'title', 'series', 'rating', 'description', 'language', 'isbn', 
+    'book_format', 'edition', 'pages', 'publisher', 'publish_date', 'first_publish_date', 
+    'num_ratings', 'ratings_by_stars', 'like_percent', 'cover_img', 'bbe_score', 'bbe_votes', 'price'
+]]
+
+# Convert the dataframe to SQL and import it into the MySQL database
+books_details_df.to_sql(name='books_details', con=engine, if_exists='replace', index=False)
+
+# Create individual dataframes for authors, awards, characters, genres, and settings
+author_df = books_df[['book_index_id', 'author']] 
+award_df = books_df[['book_index_id', 'awards']] 
+character_df = books_df[['book_index_id', 'characters']] 
+genre_df = books_df[['book_index_id', 'genres']] 
+setting_df = books_df[['book_index_id', 'setting']] 
+
+# Define function to normalize columns
+def normalize_df(df, column):
+    df = df.copy()  # Make a copy of the DataFrame
+    df[column] = df[column].str.split(', ')  # Split the column into lists
+    return df.explode(column)  # Explode entries into separate rows
+
+# Normalize and remove duplicates for each dataset, then save to SQL
+for df, column, table_name in [(author_df, 'author', 'author'), 
+                               (award_df, 'awards', 'awards'), 
+                               (character_df, 'characters', 'characters'), 
+                               (genre_df, 'genres', 'genres'), 
+                               (setting_df, 'setting', 'setting')]:
+    normalized_df = normalize_df(df, column)
+    normalized_df = normalized_df.drop_duplicates()
+    
+    if table_name == 'characters':
+        # Clean up the 'characters' column
+        normalized_df['characters'] = normalized_df['characters'].str.replace("]", "", regex=False)
+        normalized_df['characters'] = normalized_df['characters'].str.replace("[", "", regex=False)
+        normalized_df['characters'] = normalized_df['characters'].str.replace("'", " ", regex=False)
+        # Remove rows where the 'characters' column contains a blank list
+        normalized_df = normalized_df[normalized_df['characters'].apply(lambda x: x != [])]
+    
+    normalized_df.to_sql(name=table_name, con=engine, if_exists='replace', index=False)
+
+
+
+# Define primary keys and foreign keys
+mycursor.execute(
+    "ALTER TABLE books_details "
+    "ADD PRIMARY KEY (book_index_id);"
+)
+
+mycursor.execute(
+    "ALTER TABLE author "
+    "MODIFY author VARCHAR(255),"
+    "ADD FOREIGN KEY (book_index_id) REFERENCES books_details(book_index_id);"
+)
+
+mycursor.execute(
+    "ALTER TABLE awards "
+    "MODIFY awards VARCHAR(255), "
+    "ADD FOREIGN KEY (book_index_id) REFERENCES books_details(book_index_id);"
+)
+
+mycursor.execute(
+    "ALTER TABLE characters "
+    "MODIFY characters VARCHAR(255), "
+    "ADD FOREIGN KEY (book_index_id) REFERENCES books_details(book_index_id);"
+)
+
+mycursor.execute(
+    "ALTER TABLE genres "
+    "MODIFY genres VARCHAR(255), "
+    "ADD FOREIGN KEY (book_index_id) REFERENCES books_details(book_index_id);"
+)
+
+mycursor.execute(
+    "ALTER TABLE setting "
+    "MODIFY setting VARCHAR(255), "
+    "ADD FOREIGN KEY (book_index_id) REFERENCES books_details(book_index_id);"
+)
+
+
+
+
+
+
+# Close the cursor and connection
+mycursor.close()
+mydb.close()
+
+
+
+
+
+
+
+
+
+# Exploratory Data Analysis
+def print_eda(df, name):
+    print(f"DataFrame: {name}")
+    print(f"Number of rows: {df.shape[0]}")
+    print(f"Number of columns: {df.shape[1]}")
+    print("Column details:")
+    print(df.info())
+    print("\n")
+
+# Print EDA for the main books DataFrame and the detailed DataFrames
+print_eda(books_df, "books_df")
+print_eda(books_details_df, "books_details_df")
+print_eda(author_df, "author_df")
+print_eda(award_df, "award_df")
+print_eda(character_df, "character_df")
+print_eda(genre_df, "genre_df")
+print_eda(setting_df, "setting_df")
